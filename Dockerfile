@@ -10,6 +10,8 @@ RUN apt-get -y update && apt-get install -y --no-install-recommends \
          python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
+# echo environment variable 
+RUN echo $PIP_NO_CACHE_DIR
 # copy requirements file and and install
 COPY ./requirements/requirements.txt /opt/
 RUN pip3 install -r /opt/requirements.txt
