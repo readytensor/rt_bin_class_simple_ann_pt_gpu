@@ -10,11 +10,9 @@ RUN apt-get -y update && apt-get install -y --no-install-recommends \
          python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
-# echo environment variable 
-RUN echo $PIP_NO_CACHE_DIR
 # copy requirements file and and install
 COPY ./requirements/requirements.txt /opt/
-RUN pip3 install -r /opt/requirements.txt
+RUN pip3 install --no-cache-dir -r /opt/requirements.txt
 # copy src code into image and chmod scripts
 COPY src ./opt/src
 COPY ./entry_point.sh /opt/
