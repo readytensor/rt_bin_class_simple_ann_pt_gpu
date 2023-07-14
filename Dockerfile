@@ -5,6 +5,7 @@ RUN apt-get -y update && apt-get install -y --no-install-recommends \
          ca-certificates \
          dos2unix \
     && rm -rf /var/lib/apt/lists/*
+# install python and pip and add symbolic link to python3
 RUN apt-get -y update && apt-get install -y --no-install-recommends \
          python3.9 \
          python3-pip \
