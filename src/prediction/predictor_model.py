@@ -318,22 +318,21 @@ class Classifier:
                 self.optimizer.step()
 
             # current_loss = loss.item()
-            train_loss = get_loss(
-                self.net, device, train_loader, self.criterion
-            )
+            train_loss = get_loss(self.net, device, train_loader, self.criterion)
             epoch_log = {"epoch": epoch, "train_loss": train_loss}
 
             if valid_loader is not None:
-                val_loss = get_loss(
-                    self.net, device, valid_loader, self.criterion
-                )
+                val_loss = get_loss(self.net, device, valid_loader, self.criterion)
                 epoch_log["val_loss"] = val_loss
 
             # Show progress
             if verbose == 1:
                 if epoch % self._print_period == 0 or epoch == epochs - 1:
-                    val_loss_str = "" if valid_loader is None \
+                    val_loss_str = (
+                        ""
+                        if valid_loader is None
                         else f", val_loss: {np.round(val_loss, 5)}"
+                    )
                     logger.info(
                         f"Epoch: {epoch+1}/{epochs}"
                         f", loss: {np.round(train_loss, 5)}"
