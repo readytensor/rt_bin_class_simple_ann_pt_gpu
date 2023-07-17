@@ -1,4 +1,4 @@
-# Artificial Neural Network Classifier in Pytorch (GPU) with Shapley Explanations
+# Artificial Neural Network Classifier in PyTorch (GPU) with Shapley Explanations
 ## Project Description
 This repository is a dockerized implementation of the re-usable binary classifier model. It is implemented in flexible way so that it can be used with any binary classification dataset with the use of CSV-formatted data, and a JSON-formatted data schema file. The main purpose of this repository is to provide a complete example of a machine learning model implementation that is ready for deployment.
 The following are the requirements for using your data with this model:
@@ -39,7 +39,7 @@ project_repo/
 │       └── predictions/
 ├── requirements/
 │   ├── requirements.txt
-│   └── requirements_quality.txt
+│   ├── requirements_quality.txt
 │   └── requirements_test.txt
 ├── src/
 │   ├── config/

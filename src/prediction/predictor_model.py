@@ -1,6 +1,6 @@
 import os
 import warnings
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Callable
 
 import joblib
 import numpy as np
@@ -9,6 +9,7 @@ import torch as T
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
+import torch.nn.functional as F
 
 from logger import get_logger
 
@@ -25,29 +26,37 @@ device = "cuda:0" if T.cuda.is_available() else "cpu"
 logger.info(f"Using device: {device}")
 
 
-def get_activation(activation: str) -> T.nn.Module:
+def get_activation(activation: str) -> Callable:
     """
     Return the activation function based on the input string.
+
+    This function returns a callable activation function from the
+    torch.nn.functional package.
 
     Args:
         activation (str): Name of the activation function.
 
     Returns:
-        T.nn.Module: The requested activation function.
+        Callable: The requested activation function. If 'none' is specified,
+        it will return an identity function.
 
     Raises:
         Exception: If the activation string does not match any known
-                   activation functions.
+        activation functions ('relu', 'tanh', or 'none').
+
     """
     if activation == "tanh":
-        activation = T.tanh
+        return F.tanh
     elif activation == "relu":
-        activation = T.relu
+        return F.relu
     elif activation == "none":
-        activation = T.nn.Identity
+        return lambda x: x  # Identity function, doesn't change input
     else:
-        raise Exception(f"Error: Unrecognized activation type: {activation}")
-    return activation
+        raise Exception(
+            f"Error: Unrecognized activation type: {activation}. "
+            "Must be one of ['relu', 'tanh', 'none']."
+        )
+
 
 
 class Net(T.nn.Module):
@@ -64,8 +73,8 @@ class Net(T.nn.Module):
             None
         """
         super(Net, self).__init__()
-        M1 = max(2, int(D * 1.5))
-        M2 = 4
+        M1 = max(100, int(D * 4))
+        M2 = max(30, int(D * 0.5))
         self.activation = get_activation(activation)
         self.hid1 = T.nn.Linear(D, M1)
         self.hid2 = T.nn.Linear(M1, M2)
@@ -185,7 +194,7 @@ class Classifier:
         D: Optional[int] = None,
         K: Optional[int] = None,
         lr: float = 1e-3,
-        activation: str = "relu",
+        activation: str = "tanh",
         **kwargs,
     ) -> None:
         """
@@ -271,7 +280,7 @@ class Classifier:
             valid_loader,
             epochs,
             use_early_stopping=True,
-            patience=10,
+            patience=30,
             verbose=verbose,
         )
 
@@ -283,7 +292,7 @@ class Classifier:
         valid_loader: Optional[DataLoader],
         epochs: int,
         use_early_stopping: bool = True,
-        patience: int = 10,
+        patience: int = 30,
         verbose: int = 1,
     ) -> List[Dict[str, Union[int, float]]]:
         """
@@ -468,6 +477,15 @@ class Classifier:
             T.load(os.path.join(model_path, MODEL_WTS_FNAME))
         )
         return classifier
+
+    def __str__(self):
+        return (
+            f"Model name: {self.model_name}\n"
+            f"D: {self.D}\n"
+            f"K: {self.K}\n"
+            f"lr: {self.lr}\n"
+            f"activation: {self.activation}"
+        )
 
 
 def train_predictor_model(
