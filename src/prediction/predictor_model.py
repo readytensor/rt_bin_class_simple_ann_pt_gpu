@@ -13,7 +13,6 @@ import torch.nn.functional as F
 
 from logger import get_logger
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # or any {'0', '1', '2'}
 warnings.filterwarnings("ignore")
 
 MODEL_PARAMS_FNAME = "model_params.save"
@@ -479,12 +478,13 @@ class Classifier:
         return classifier
 
     def __str__(self):
+        # sort params alphabetically for unit test to run successfully
         return (
-            f"Model name: {self.model_name}\n"
-            f"D: {self.D}\n"
-            f"K: {self.K}\n"
-            f"lr: {self.lr}\n"
-            f"activation: {self.activation}"
+            f"Model name: {self.model_name} ("
+            f"activation: {self.activation}, "
+            f"D: {self.D}, "
+            f"K: {self.K}, "
+            f"lr: {self.lr})"
         )
 
 

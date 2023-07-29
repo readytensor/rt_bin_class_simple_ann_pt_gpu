@@ -1,4 +1,4 @@
 {
   "lr": 1e-3,
-  "activation": "relu"
+  "activation": "tanh"
 }
