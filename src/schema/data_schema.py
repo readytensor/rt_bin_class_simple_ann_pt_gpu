@@ -60,14 +60,14 @@ class BinaryClassificationSchema:
         return self.schema["title"]
 
     @property
-    def summary(self) -> str:
+    def description(self) -> str:
         """
-        Gets the summary of the dataset or problem.
+        Gets the description of the dataset or problem.
 
         Returns:
-            str: A brief summary of the dataset or the problem.
+            str: A brief description of the dataset or the problem.
         """
-        return self.schema["summary"]
+        return self.schema["description"]
 
     @property
     def schema_version(self) -> float:

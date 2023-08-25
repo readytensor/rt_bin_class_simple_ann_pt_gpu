@@ -1,69 +1,27 @@
 import math
 import os
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Dict, Union
 
 import numpy as np
 import pandas as pd
-from skopt import gp_minimize
-from skopt.callbacks import EarlyStopper
-from skopt.space import Categorical, Integer, Real
+from hyperopt import Trials, fmin, hp, tpe
+from hyperopt.early_stop import no_progress_loss
 
 from config import paths
-from logger import get_logger
 from prediction.predictor_model import evaluate_predictor_model, train_predictor_model
 from utils import read_json_as_dict, save_dataframe_as_csv
 
 HPT_RESULTS_FILE_NAME = "HPT_results.csv"
 
-logger = get_logger(task_name="tune")
-
-
-def logger_callback(res):
-    """
-    Logger callback for the hyperparameter tuning trials.
-
-    Logs each trial to the logger including:
-        - Iteration number
-        - Current hyperparameter trial
-        - Current trial objective function value
-        - Best hyperparameters found so far
-        - Best objective function value found so far
-    """
-    logger.info(f"Iteration: {len(res.x_iters)}")
-    logger.info(f"Current trial hyperparameters: {res.x_iters[-1]}")
-    logger.info(f"Current trial obj func value: {res.func_vals[-1]}")
-    logger.info(f"Best trial hyperparameters: {res.x}")
-    logger.info(f"Best objective func value: {res.fun}")
-
-
-class StoppingCriterion(EarlyStopper):
-    """Stop Bayesian Optimization if improvement doesnt exceed delta %
-    for n_best iterations.
-
-    """
-
-    def __init__(self, delta=0.03, n_best=5):
-        super(EarlyStopper, self).__init__()
-        self.delta = delta
-        self.n_best = n_best
-
-    def _criterion(self, result):
-        if len(result.func_vals) >= self.n_best:
-            func_vals = np.sort(result.func_vals)
-            worst = func_vals[self.n_best - 1]
-            best = func_vals[0]
-            improvement = abs((best - worst) / worst)
-            return improvement <= self.delta
-        return False
-
 
 class HyperParameterTuner:
-    """Scikit-Optimize hyperparameter tuner class.
+    """Hyperopt hyperparameter tuner class.
 
     Args:
         default_hps (Dict[str, Any]): Dictionary of default hyperparameter values.
         hpt_specs (Dict[str, Any]): Dictionary of hyperparameter tuning specs.
-        hpt_results_dir_path (str): Dir path to save the hyperparameter tuning results.
+        hpt_results_dir_path (str): Dir path to save the hyperparameter tuning
+            results.
         is_minimize (bool, optional): Whether the metric should be minimized.
             Defaults to True.
     """
@@ -89,15 +47,9 @@ class HyperParameterTuner:
         self.hpt_results_dir_path = hpt_results_dir_path
         self.is_minimize = is_minimize
         self.num_trials = hpt_specs.get("num_trials", 20)
-        assert self.num_trials >= 2, "Scikit-Optimize minimizer needs at least 2 trials"
-
-        # names of hyperparameters in a list
-        self.hyperparameter_names = [
-            hp_obj["name"] for hp_obj in self.hpt_specs["hyperparameters"]
-        ]
-        self.default_hyperparameter_vals = [
-            self.default_hyperparameters[hp] for hp in self.hyperparameter_names
-        ]
+        assert self.num_trials >= 2, "Hyperparameter Tuning needs at least 2 trials"
+        # Trials captures the search information
+        self.trials = Trials()
         self.hpt_space = self._get_hpt_space()
 
     def _get_objective_func(
@@ -119,11 +71,9 @@ class HyperParameterTuner:
             A callable objective function for hyperparameter tuning.
         """
 
-        def objective_func(trial):
+        def objective_func(hyperparameters):
             """Build a model from this hyper parameter permutation and evaluate
             its performance"""
-            # convert list of HP values into a dictionary of name:val pairs
-            hyperparameters = dict(zip(self.hyperparameter_names, trial))
             # train model
             classifier = train_predictor_model(train_X, train_y, hyperparameters)
             # evaluate the model
@@ -136,53 +86,49 @@ class HyperParameterTuner:
 
         return objective_func
 
-    def _get_hpt_space(self) -> List[Union[Categorical, Integer, Real]]:
+    def _get_hpt_space(self) -> Dict[str, Any]:
         """Get the hyperparameter tuning search space.
 
         Returns:
-            List[Union[Categorical, Integer, Real]]: List of hyperparameter
-                space objects.
+            Dict[str, Any]: Dictionary of hyperparameter space objects.
         """
-        param_grid = []
+        param_grid = {}
         space_map = {
-            ("categorical", None): Categorical,
-            ("int", "uniform"): lambda low, high, name: Integer(
-                low, high, prior="uniform", name=name
-            ),
-            ("int", "log-uniform"): lambda low, high, name: Integer(
-                low, high, prior="log-uniform", name=name
-            ),
-            ("real", "uniform"): lambda low, high, name: Real(
-                low, high, prior="uniform", name=name
-            ),
-            ("real", "log-uniform"): lambda low, high, name: Real(
-                low, high, prior="log-uniform", name=name
-            ),
+            ("categorical", None): hp.choice,
+            ("int", "uniform"): hp.quniform,
+            ("int", "log-uniform"): hp.qloguniform,
+            ("real", "uniform"): hp.uniform,
+            ("real", "log-uniform"): hp.loguniform,
         }
-
         for hp_obj in self.hpt_specs["hyperparameters"]:
-            method_key = (hp_obj["type"], hp_obj.get("search_type"))
-            space_constructor = space_map.get(method_key)
+            hp_val_type = hp_obj["type"]
+            search_type = hp_obj.get("search_type")
+            key = (hp_val_type, search_type)
 
-            if space_constructor is None:
-                raise ValueError(
-                    f"Error creating Hyper-Param Grid. \
-                    Undefined value type: {hp_obj['type']} or search_type: \
-                    {hp_obj['search_type']}. Verify hpt_config.json file."
-                )
-
-            if hp_obj["type"] == "categorical":
-                param_grid.append(
-                    space_constructor(hp_obj["categories"], name=hp_obj["name"])
-                )
+            if key in space_map:
+                func = space_map[key]
+                name = hp_obj["name"]
+                if hp_val_type == "categorical":
+                    val = func(name, hp_obj["categories"])
+                else:
+                    low = hp_obj["range_low"]
+                    high = hp_obj["range_high"]
+                    if hp_val_type == "real" and search_type == "log-uniform":
+                        # take logarithm of bounds for log-uniform distribution
+                        low, high = np.log(low), np.log(high)
+                    val = func(name, low, high, 1) \
+                        if hp_val_type == "int" else func(name, low, high)
             else:
-                param_grid.append(
-                    space_constructor(
-                        hp_obj["range_low"], hp_obj["range_high"], name=hp_obj["name"]
-                    )
+                raise ValueError(
+                    f"Error creating Hyper-Param Grid. "
+                    f"Undefined value type: {hp_val_type} "
+                    f"or search_type: {search_type}. "
+                    "Verify hpt_config.json file."
                 )
+            param_grid[name] = val
 
         return param_grid
+
 
     def run_hyperparameter_tuning(
         self,
@@ -202,69 +148,48 @@ class HyperParameterTuner:
         Returns:
             A dictionary containing the best model name, hyperparameters, and score.
         """
-        # Use 1/3 of the trials to explore the space initially, but at most 5 trials
-        n_initial_points = max(1, min(self.num_trials // 3, 5))
         objective_func = self._get_objective_func(train_X, train_y, valid_X, valid_y)
-        optimizer_results = gp_minimize(
+        best_hyperparams = fmin(
             # the objective function to minimize
-            func=objective_func,
+            fn=objective_func,
             # the hyperparameter space
-            dimensions=self.hpt_space,
-            # starting sample
-            x0=self.default_hyperparameter_vals,
-            # the acquisition function
-            acq_func="EI",
-            # Number of evaluations of `func` with initialization points before
-            # approximating it with base_estimator
-            n_initial_points=n_initial_points,
-            # Number of calls to `func`,
-            n_calls=self.num_trials,
-            random_state=0,
-            callback=[logger_callback, StoppingCriterion(delta=0.03, n_best=5)],
-            verbose=False,
+            space=self.hpt_space,
+            # search algorithm; This object, such as `hyperopt.rand.suggest` and
+            # `hyperopt.tpe.suggest` provides logic for sequential search of the
+            # hyperparameter space.
+            algo=tpe.suggest,
+            # Allow up to this many function evaluations before returning,
+            max_evals=self.num_trials,
+            # Set seed for reproducibility
+            rstate=np.random.default_rng(0),
+            # trials captures the search information (we set this in __init__)
+            trials=self.trials,
+            # early stop
+            early_stop_fn=no_progress_loss(10),
+            # 
+            return_argmin=False
         )
-        self.save_hpt_summary_results(optimizer_results)
-        return self.get_best_hyperparameters(optimizer_results)
+        self.save_hpt_summary_results()
+        return best_hyperparams
 
-    def get_best_hyperparameters(self, optimizer_results: Any) -> Dict[str, Any]:
-        """Gets the best hyperparameters from the optimization results.
-
-        Args:
-            optimizer_results: The result object returned by the optimizer function.
-
-        Returns:
-            A dictionary containing the best hyperparameters.
-        """
-        best_idx = np.argmin(optimizer_results.func_vals)
-        best_hyperparameter_vals = optimizer_results.x_iters[best_idx]
-        best_hyperparameters = dict(
-            zip(self.hyperparameter_names, best_hyperparameter_vals)
+    def save_hpt_summary_results(self):
+        """Save the hyperparameter tuning results to a file."""
+        # save trial results
+        hpt_results_df = (
+            pd.concat(
+                [pd.DataFrame(self.trials.vals), pd.DataFrame(self.trials.results)],
+                axis=1,
+            )
+            .sort_values(by="loss", ascending=False)
+            .reset_index(drop=True)
         )
-        return best_hyperparameters
-
-    def save_hpt_summary_results(self, optimizer_result: Any):
-        """Saves the hyperparameter tuning results to a file.
-
-        Args:
-            optimizer_result: The result object returned by the optimizer function.
-        """
-        # # save trial results
-        hpt_results_df = pd.concat(
-            [
-                pd.DataFrame(optimizer_result.x_iters),
-                pd.Series(optimizer_result.func_vals),
-            ],
-            axis=1,
-        )
-        hpt_results_df.columns = self.hyperparameter_names + ["metric_value"]
         hpt_results_df.insert(0, "trial_num", 1 + np.arange(hpt_results_df.shape[0]))
-        hpt_results_df.sort_values(by="metric_value", inplace=True, ignore_index=True)
-        if self.is_minimize is False:
-            hpt_results_df["metric_value"] = -hpt_results_df["metric_value"]
         if not os.path.exists(self.hpt_results_dir_path):
             os.makedirs(self.hpt_results_dir_path)
-        file_path = os.path.join(self.hpt_results_dir_path, HPT_RESULTS_FILE_NAME)
-        save_dataframe_as_csv(hpt_results_df, file_path)
+        save_dataframe_as_csv(
+            hpt_results_df,
+            os.path.join(self.hpt_results_dir_path, HPT_RESULTS_FILE_NAME),
+        )
 
 
 def tune_hyperparameters(
@@ -280,7 +205,7 @@ def tune_hyperparameters(
     """
     Tune hyperparameters using Scikit-Optimize (SKO) hyperparameter tuner.
 
-    This function creates an instance of the HyperParameterTuner with the
+    This function creates an instance of the SKOHyperparameterTuner with the
     provided hyperparameters and tuning specifications, then runs the hyperparameter
     tuning process and returns the best hyperparameters.
 

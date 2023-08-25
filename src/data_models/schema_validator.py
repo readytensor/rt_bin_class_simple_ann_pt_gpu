@@ -44,6 +44,8 @@ class Target(BaseModel):
 
 
 class DataType(str, Enum):
+    """Enum for the data type of a feature"""
+
     NUMERIC = "NUMERIC"
     CATEGORICAL = "CATEGORICAL"
 
