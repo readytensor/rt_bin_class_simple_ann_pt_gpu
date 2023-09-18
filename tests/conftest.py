@@ -24,6 +24,7 @@ def schema_dict():
         "modelCategory": "binary_classification",
         "schemaVersion": 1.0,
         "inputDataFormat": "CSV",
+        "encoding": "utf-8",
         "id": {"name": "id", "description": "unique identifier."},
         "target": {
             "name": "target_field",
