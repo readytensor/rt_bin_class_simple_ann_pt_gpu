@@ -1,5 +1,5 @@
-train: python /opt/src/train.py
+train: python ./src/train.py
 
-predict: python /opt/src/predict.py
+predict: python ./src/predict.py
 
-serve: python /opt/src/serve.py
+serve: python ./src/serve.py
