@@ -1,18 +1,45 @@
-# use an NVIDIA CUDA base image
-FROM nvidia/cuda:12.2.0-runtime-ubuntu20.04 as builder
-# Install OS dependencies
+# Use an NVIDIA CUDA base image
+FROM nvidia/cuda:12.3.1-runtime-ubuntu20.04 as builder
+
+# Install build dependencies
 RUN apt-get -y update && apt-get install -y --no-install-recommends \
-         ca-certificates \
-         dos2unix \
+    ca-certificates \
+    dos2unix \
+    wget \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    zlib1g-dev \
+    liblzma-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
-# install python and pip and add symbolic link to python3
-RUN apt-get -y update && apt-get install -y --no-install-recommends \
-         python3.9 \
-         python3-pip \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Download and extract Python 3.11
+RUN wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tgz \
+    && tar -xzf Python-3.11.0.tgz \
+    && cd Python-3.11.0 \
+    && ./configure --enable-optimizations \
+    && make -j 8 \
+    && make altinstall
+
+# Cleanup the source
+RUN rm -rf Python-3.11.0.tgz Python-3.11.0
+
+# Install and upgrade pip for Python 3.11
+RUN wget https://bootstrap.pypa.io/get-pip.py \
+    && python3.11 get-pip.py \
+    && python3.11 -m pip install --upgrade pip \
+    && rm get-pip.py
+
+
+# Add a symbolic link to python3 (optional)
+RUN ln -s /usr/local/bin/python3.11 /usr/local/bin/python3 \
+    && ln -s /usr/local/bin/python3.11 /usr/local/bin/python
+
 # copy requirements file and and install
-COPY ./requirements/requirements.txt /opt/
+COPY ./requirements.txt /opt/
 RUN pip3 install --no-cache-dir -r /opt/requirements.txt
 # copy src code into image and chmod scripts
 COPY src ./opt/src
@@ -28,6 +55,13 @@ WORKDIR /opt/src
 ENV PYTHONUNBUFFERED=TRUE
 ENV PYTHONDONTWRITEBYTECODE=TRUE
 ENV PATH="/opt/src:${PATH}"
+ENV TORCH_HOME="/opt"
+ENV MPLCONFIGDIR="/opt"
+
+RUN chown -R 1000:1000 /opt
+
+RUN chmod -R 777 /opt
+
 # set non-root user
 USER 1000
 # set entrypoint
