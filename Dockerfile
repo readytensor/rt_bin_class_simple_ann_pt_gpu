@@ -39,7 +39,7 @@ RUN ln -s /usr/local/bin/python3.11 /usr/local/bin/python3 \
     && ln -s /usr/local/bin/python3.11 /usr/local/bin/python
 
 # copy requirements file and and install
-COPY ./requirements.txt /opt/
+COPY ./requirements/requirements.txt /opt/
 RUN pip3 install --no-cache-dir -r /opt/requirements.txt
 # copy src code into image and chmod scripts
 COPY src ./opt/src
