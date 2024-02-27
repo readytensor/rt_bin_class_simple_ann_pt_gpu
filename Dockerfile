@@ -1,43 +1,37 @@
 # Use an NVIDIA CUDA base image
 FROM nvidia/cuda:12.3.1-runtime-ubuntu20.04 as builder
 
-# Install build dependencies
-RUN apt-get -y update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    dos2unix \
-    wget \
-    build-essential \
-    libffi-dev \
-    libssl-dev \
-    zlib1g-dev \
-    liblzma-dev \
-    libbz2-dev \
-    libreadline-dev \
-    libsqlite3-dev \
+# Avoid prompts from apt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.9 and pip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.9 \
+    python3.9-distutils \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract Python 3.11
-RUN wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tgz \
-    && tar -xzf Python-3.11.0.tgz \
-    && cd Python-3.11.0 \
-    && ./configure --enable-optimizations \
-    && make -j 8 \
-    && make altinstall
-
-# Cleanup the source
-RUN rm -rf Python-3.11.0.tgz Python-3.11.0
-
-# Install and upgrade pip for Python 3.11
-RUN wget https://bootstrap.pypa.io/get-pip.py \
-    && python3.11 get-pip.py \
-    && python3.11 -m pip install --upgrade pip \
+# Install pip for Python 3.9
+RUN apt-get update && apt-get install -y wget \
+    && wget https://bootstrap.pypa.io/get-pip.py \
+    && python3.9 get-pip.py \
     && rm get-pip.py
 
+# Update alternatives to prioritize Python 3.9
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1 \
+    && update-alternatives --set python3 /usr/bin/python3.9
 
-# Add a symbolic link to python3 (optional)
-RUN ln -s /usr/local/bin/python3.11 /usr/local/bin/python3 \
-    && ln -s /usr/local/bin/python3.11 /usr/local/bin/python
+# Update the symbolic link for python to point to python3
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
+# Verify installation
+RUN python --version
+RUN python3 --version
+RUN pip --version
 # copy requirements file and and install
 COPY ./requirements/requirements.txt /opt/
 RUN pip3 install --no-cache-dir -r /opt/requirements.txt
