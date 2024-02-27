@@ -10,7 +10,7 @@ RUN apt-get -y update && apt-get install -y --no-install-recommends \
          python3.9 \
          python3-pip \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/bin/python3 /usr/bin/python
+    && ln -sf /usr/bin/python3 /usr/bin/python
 # copy requirements file and and install
 COPY ./requirements/requirements.txt /opt/
 RUN pip3 install --no-cache-dir -r /opt/requirements.txt
