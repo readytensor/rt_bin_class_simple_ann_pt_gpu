@@ -4,6 +4,12 @@ FROM nvidia/cuda:12.3.1-runtime-ubuntu20.04 as builder
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Install OS dependencies
+RUN apt-get -y update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    dos2unix \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Python 3.9 and pip
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
