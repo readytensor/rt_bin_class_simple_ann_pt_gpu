@@ -6,6 +6,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import torch as T
+import torch.nn as nn
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
@@ -182,6 +183,41 @@ def get_loss(
     return loss_total / len(data_loader)
 
 
+class WeightedBCELoss(nn.Module):
+    def __init__(self, positive_class_weight=1.0):
+        """
+        Initializes the weighted binary cross entropy loss module.
+
+        Parameters:
+        - positive_class_weight (float): Weight for the positive class.
+        """
+        super(WeightedBCELoss, self).__init__()
+        self.positive_class_weight = positive_class_weight
+
+    def forward(self, output: T.Tensor, target: T.Tensor):
+        """
+        Forward pass for the weighted BCE loss.
+
+        Parameters:
+        - output (torch.Tensor): The predicted probabilities (after sigmoid).
+        - target (torch.Tensor): The ground truth labels.
+
+        Returns:
+        - torch.Tensor: The weighted loss.
+        """
+        # Calculate the BCE loss for each element without reduction
+        output = nn.Softmax(dim=1)(output)
+        output = output[:, 1].view(-1)
+        bce_loss = F.binary_cross_entropy(output, target.float())
+
+        # Apply weights: elements with target == 1 get scaled by positive_class_weight
+        weights = T.ones_like(target) * (target * (self.positive_class_weight - 1) + 1)
+        weighted_loss = bce_loss * weights
+
+        # Return the mean of the weighted loss
+        return weighted_loss.mean()
+
+
 class Classifier:
     """A wrapper class for the ANN Binary classifier in PyTorch."""
 
@@ -230,8 +266,9 @@ class Classifier:
         Build and set up the model, loss function, and optimizer.
         """
         self.net = Net(D=self.D, K=self.K, activation=self.activation).to(device)
-        self.criterion = T.nn.CrossEntropyLoss()
-        # self.optimizer = T.optim.SGD(self.net.parameters(), lr=self.lr)
+        self.criterion = WeightedBCELoss(
+            positive_class_weight=self.positive_class_weight
+        )
         self.optimizer = T.optim.Adam(self.net.parameters(), lr=self.lr)
 
     def fit(
@@ -451,6 +488,8 @@ class Classifier:
         Returns:
             float: The accuracy of the classifier.
         """
+        if decision_threshold == -1:
+            decision_threshold = self.decision_threshold
 
         if self.net is not None:
             prob = self.predict_proba(test_inputs)
@@ -475,6 +514,8 @@ class Classifier:
             "K": self.K,
             "lr": self.lr,
             "activation": self.activation,
+            "decision_threshold": self.decision_threshold,
+            "positive_class_weight": self.positive_class_weight,
         }
         joblib.dump(model_params, os.path.join(model_path, MODEL_PARAMS_FNAME))
         T.save(self.net.state_dict(), os.path.join(model_path, MODEL_WTS_FNAME))
