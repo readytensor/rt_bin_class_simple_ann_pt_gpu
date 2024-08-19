@@ -10,6 +10,7 @@ from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 import torch.nn.functional as F
+from sklearn.metrics import f1_score
 
 from logger import get_logger
 
@@ -55,7 +56,6 @@ def get_activation(activation: str) -> Callable:
             f"Error: Unrecognized activation type: {activation}. "
             "Must be one of ['relu', 'tanh', 'none']."
         )
-
 
 
 class Net(T.nn.Module):
@@ -194,6 +194,8 @@ class Classifier:
         K: Optional[int] = None,
         lr: float = 1e-3,
         activation: str = "tanh",
+        decision_threshold: Optional[float] = 0.5,
+        positive_class_weight: Optional[float] = 1.0,
         **kwargs,
     ) -> None:
         """
@@ -206,11 +208,17 @@ class Classifier:
             lr (float, optional): Learning rate for optimizer. Defaults to 1e-3.
             activation (str, optional): Activation function for hidden layer.
                                 Defaults to "relu". Options: ["relu", "tanh", "none"]
+            decision_threshold (float, optional): The decision threshold for
+                the positive class. Defaults to 0.5.
+            positive_class_weight (float, optional): The weight of the positive
+                class. Defaults to 1.0.
         """
         self.D = D
         self.K = K
         self.activation = activation
         self.lr = lr
+        self.decision_threshold = decision_threshold
+        self.positive_class_weight = positive_class_weight
         self._print_period = 10
         # following are set when fitting to data
         self.net = None
@@ -326,22 +334,21 @@ class Classifier:
                 self.optimizer.step()
 
             # current_loss = loss.item()
-            train_loss = get_loss(
-                self.net, device, train_loader, self.criterion
-            )
+            train_loss = get_loss(self.net, device, train_loader, self.criterion)
             epoch_log = {"epoch": epoch, "train_loss": train_loss}
 
             if valid_loader is not None:
-                val_loss = get_loss(
-                    self.net, device, valid_loader, self.criterion
-                )
+                val_loss = get_loss(self.net, device, valid_loader, self.criterion)
                 epoch_log["val_loss"] = val_loss
 
             # Show progress
             if verbose == 1:
                 if epoch % self._print_period == 0 or epoch == epochs - 1:
-                    val_loss_str = "" if valid_loader is None \
+                    val_loss_str = (
+                        ""
+                        if valid_loader is None
                         else f", val_loss: {np.round(val_loss, 5)}"
+                    )
                     logger.info(
                         f"Epoch: {epoch+1}/{epochs}"
                         f", loss: {np.round(train_loss, 5)}"
@@ -383,19 +390,29 @@ class Classifier:
         preds = T.softmax(self.net(X), dim=-1).detach().cpu().numpy()
         return preds
 
-    def predict(self, inputs: pd.DataFrame) -> np.ndarray:
+    def predict(
+        self,
+        inputs: pd.DataFrame,
+        decision_threshold: float = -1,
+    ) -> np.ndarray:
         """
         Predict class labels for the given data.
 
         Args:
             inputs (pd.DataFrame): The input data.
+            decision_threshold (Optional float): Decision threshold for the
+                positive class.
+                Value -1 indicates use the default set when model was
+                instantiated.
 
         Returns:
             np.ndarray: The predicted class labels.
         """
+        if decision_threshold == -1:
+            decision_threshold = self.decision_threshold
         class_probs = self._predict(inputs.values)
         class1_probs = class_probs[:, 1]
-        predicted_labels = (class1_probs >= 0.5).astype(int)
+        predicted_labels = (class1_probs >= decision_threshold).astype(int)
         return np.squeeze(predicted_labels)
 
     def predict_proba(self, inputs: pd.DataFrame) -> np.ndarray:
@@ -416,26 +433,30 @@ class Classifier:
         """
         self.net.summary()
 
-    def evaluate(self, x_test: pd.DataFrame, y_test: pd.Series) -> float:
-        """
-        Evaluate the model and return the accuracy.
+    def evaluate(
+        self,
+        test_inputs: pd.DataFrame,
+        test_targets: pd.Series,
+        decision_threshold: float = -1,
+    ) -> float:
+        """Evaluate the classifier and return the accuracy.
 
         Args:
-            x_test (pd.DataFrame): Training inputs.
-            y_test (pd.Series): Training targets.
-
+            test_inputs (pandas.DataFrame): The features of the test data.
+            test_targets (pandas.Series): The labels of the test data.
+            decision_threshold (Optional float): Decision threshold for the
+                positive class.
+                Value -1 indicates use the default set when model was
+                instantiated.
         Returns:
-            float: Accuracy of the model on test data.
-
-        Raises:
-            NotFittedError: If the model is not fitted yet.
+            float: The accuracy of the classifier.
         """
+
         if self.net is not None:
-            predicted_classes = self.predict(x_test)
-            accuracy = np.sum(predicted_classes == y_test) / len(y_test)
-            return accuracy
-        else:
-            raise NotFittedError("Model is not fitted yet.")
+            prob = self.predict_proba(test_inputs)
+            labels = prob[:, 1] >= decision_threshold
+            score = f1_score(test_targets, labels)
+            return score
 
     def save(self, model_path: str):
         """
@@ -554,7 +575,10 @@ def load_predictor_model(model_dir_path: str) -> Classifier:
 
 
 def evaluate_predictor_model(
-    model: Classifier, x_test: pd.DataFrame, y_test: pd.Series
+    model: Classifier,
+    x_test: pd.DataFrame,
+    y_test: pd.Series,
+    decision_threshold: float = -1,
 ) -> float:
     """
     Evaluate the classifier model and return the accuracy.
@@ -563,11 +587,26 @@ def evaluate_predictor_model(
         model (Classifier): The classifier model.
         x_test (pd.DataFrame): The features of the test data.
         y_test (pd.Series): The labels of the test data.
+        decision_threshold (Union(optional, float)): Decision threshold
+                for predicted label.
+                Value -1 indicates use the default set when model was
+                instantiated.
 
     Returns:
         float: The accuracy of the classifier model.
     """
-    return model.evaluate(x_test, y_test)
+    return model.evaluate(x_test, y_test, decision_threshold)
+
+
+def set_decision_threshold(model: Classifier, decision_threshold: float) -> None:
+    """
+    Set the decision threshold for the classifier model.
+
+    Args:
+        model (Classifier): The classifier model.
+        decision_threshold (float): The decision threshold.
+    """
+    model.decision_threshold = decision_threshold
 
 
 def save_training_history(history, dir_path):
