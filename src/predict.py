@@ -23,6 +23,7 @@ def create_predictions_dataframe(
     id_field_name: str,
     return_probs: bool = False,
     decision_threshold: float = 0.5,
+    positive_class_weight: float = 1.0,
 ) -> pd.DataFrame:
     """
     Converts the predictions numpy array into a dataframe having the required structure.
@@ -41,6 +42,8 @@ def create_predictions_dataframe(
         return_probs (bool, optional): If True, returns the predicted probabilities
             for each class. If False, returns the final predicted class for each
             data point. Defaults to False.
+        decision_threshold (float, optional): Decision threshold for binary classification.
+        positive_class_weight (float, optional): Weight of the positive class.
 
     Returns:
         Predictions as a pandas dataframe
@@ -53,15 +56,15 @@ def create_predictions_dataframe(
     if len(predictions_arr) != len(ids):
         raise ValueError("Length of ids does not match number of predictions")
     predictions_df.insert(0, id_field_name, ids)
+    predictions_df["decision_threshold"] = decision_threshold
+    predictions_df["positive_class_weight"] = positive_class_weight
     if return_probs:
         return predictions_df
     negative_class = class_names[0]
     positive_class = class_names[1]
     labels = predictions_arr[:, 1] >= decision_threshold
     labels = np.where(labels, positive_class, negative_class)
-
     predictions_df[prediction_field_name] = labels
-    predictions_df["decision_threshold"] = decision_threshold
     return predictions_df
 
 
@@ -138,6 +141,7 @@ def run_batch_predictions(
             data_schema.id,
             return_probs=True,
             decision_threshold=predictor_model.decision_threshold,
+            positive_class_weight=predictor_model.positive_class_weight,
         )
 
         logger.info("Validating predictions...")
