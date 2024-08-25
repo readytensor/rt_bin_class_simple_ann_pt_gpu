@@ -124,10 +124,10 @@ def get_preprocess_pipeline(data_schema: Any, preprocessing_config: dict) -> Pip
             ("cat_most_frequent_imputer", cat_most_frequent_imputer),
             ("cat_imputer_with_missing_tag", cat_imputer_with_missing_tag),
             ("rare_label_encoder", rare_label_encoder),
-            ("constant_feature_dropper", constant_feature_dropper),
-            ("duplicated_feature_dropper", duplicated_feature_dropper),
+            # ("constant_feature_dropper", constant_feature_dropper),
+            # ("duplicated_feature_dropper", duplicated_feature_dropper),
             ("one_hot_encoder", one_hot_encoder),
-            ("correlated_feature_dropper", correlated_feature_dropper),
+            # ("correlated_feature_dropper", correlated_feature_dropper),
             ("column_sorter", column_sorter),
         ]
     )
