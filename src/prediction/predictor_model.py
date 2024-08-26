@@ -53,7 +53,7 @@ def get_activation(activation: str) -> Callable:
     elif activation == "none":
         return lambda x: x  # Identity function, doesn't change input
     else:
-        raise Exception(
+        raise ValueError(
             f"Error: Unrecognized activation type: {activation}. "
             "Must be one of ['relu', 'tanh', 'none']."
         )
@@ -97,7 +97,7 @@ class Net(T.nn.Module):
         """
         x = self.activation(self.hid1(x))
         x = self.activation(self.hid2(x))
-        x = self.oupt(x)  # no softmax: CrossEntropyLoss()
+        x = self.oupt(x)
         return x
 
     def get_num_parameters(self) -> int:
@@ -211,7 +211,7 @@ class WeightedBCELoss(nn.Module):
         bce_loss = F.binary_cross_entropy(output, target.float())
 
         # Apply weights: elements with target == 1 get scaled by positive_class_weight
-        weights = T.ones_like(target) * (target * (self.positive_class_weight - 1) + 1)
+        weights = T.where(target == 1, self.positive_class_weight, 1.0)
         weighted_loss = bce_loss * weights
 
         # Return the mean of the weighted loss
@@ -370,46 +370,41 @@ class Classifier:
                 loss.backward()
                 self.optimizer.step()
 
-            # current_loss = loss.item()
-            train_loss = get_loss(self.net, device, train_loader, self.criterion)
-            epoch_log = {"epoch": epoch, "train_loss": train_loss}
+            # Validation phase (skip train_loss calculation if validation is available)
+            epoch_log = {"epoch": epoch}
 
             if valid_loader is not None:
                 val_loss = get_loss(self.net, device, valid_loader, self.criterion)
                 epoch_log["val_loss"] = val_loss
 
-            # Show progress
-            if verbose == 1:
-                if epoch % self._print_period == 0 or epoch == epochs - 1:
-                    val_loss_str = (
-                        ""
-                        if valid_loader is None
-                        else f", val_loss: {np.round(val_loss, 5)}"
-                    )
-                    logger.info(
-                        f"Epoch: {epoch+1}/{epochs}"
-                        f", loss: {np.round(train_loss, 5)}"
-                        f"{val_loss_str}"
-                    )
+                # Early stopping based on validation loss
+                current_loss = val_loss
+            else:
+                # Only calculate train_loss if no validation loader
+                train_loss = get_loss(self.net, device, train_loader, self.criterion)
+                epoch_log["train_loss"] = train_loss
+                current_loss = train_loss
 
             losses.append(epoch_log)
 
-            if use_early_stopping:
-                # Early stopping
-                if valid_loader is not None:
-                    current_loss = val_loss
-                else:
-                    current_loss = train_loss
+            if verbose == 1 and (epoch % self._print_period == 0 or epoch == epochs - 1):
+                log_message = f"Epoch: {epoch+1}/{epochs}"
+                if "train_loss" in epoch_log:
+                    log_message += f", train_loss: {np.round(epoch_log['train_loss'], 5)}"
+                if "val_loss" in epoch_log:
+                    log_message += f", val_loss: {np.round(epoch_log['val_loss'], 5)}"
+                logger.info(log_message)
 
+            if use_early_stopping:
                 if current_loss < best_loss:
-                    trigger_times = 0
                     best_loss = current_loss
+                    trigger_times = 0
                 else:
                     trigger_times += 1
                     if trigger_times >= patience:
                         if verbose == 1:
                             logger.info("Early stopping!")
-                        return losses
+                        break
 
         return losses
 
